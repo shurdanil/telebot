@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type userModel struct {
@@ -353,14 +354,218 @@ func handleButton(query *tgbotapi.CallbackQuery) {
 	if strings.Contains(query.Data, "selectEvent") {
 		textList := strings.Split(query.Data, "|")
 		text = "Выбрано событие: " + textList[2]
+
+		callbackCfg := tgbotapi.NewCallback(query.ID, "")
+		bot.Send(callbackCfg)
+
+		msg := tgbotapi.NewMessage(message.Chat.ID, text)
+		bot.Send(msg)
+
+		currentSessionsUrl := "https://gameapi.riichimahjong.org/v2/common.Mimir/GetCurrentSessions"
+
+		userObject, _ := userDB[message.Chat.ID]
+
+		body := []byte(`{"player_id":` + strconv.Itoa(userObject.PersonId) + `,"event_id":` + textList[1] + `}`)
+
+		r, err := http.NewRequest("POST", currentSessionsUrl, bytes.NewBuffer(body))
+		if err != nil {
+			panic(err)
+		}
+
+		r.Header.Add("authority", "userapi.riichimahjong.org")
+		r.Header.Add("accept", "application/json; charset=UTF-8';")
+		r.Header.Add("Content-Type", "application/json; charset=UTF-8';")
+		r.Header.Add("x-auth-token", userDB[message.Chat.ID].Token)
+		r.Header.Add("x-current-person-id", strconv.Itoa(userDB[message.Chat.ID].PersonId))
+
+		client := &http.Client{}
+		res, err := client.Do(r)
+		if err != nil {
+			panic(err)
+		}
+		b, err := io.ReadAll(res.Body)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		fmt.Println(389, string(b))
+
+		if len(string(b)) == 0 {
+			msg = tgbotapi.NewMessage(message.Chat.ID, "Запущенных игр нет")
+			bot.Send(msg)
+			return
+		}
+
+		type PlayerInSession struct {
+			Id         int32  `json:"id"`
+			Title      string `json:"title"`
+			Score      int32  `json:"score"`
+			HasAvatar  bool   `json:"hasAvatar"`
+			LastUpdate string `json:"lastUpdate"`
+		}
+
+		type sessionType struct {
+			SessionHash string            `json:"sessionHash"`
+			Status      string            `json:"status"`
+			Players     []PlayerInSession `json:"players"`
+		}
+
+		type sessionsType struct {
+			Sessions []sessionType `json:"sessions"`
+		}
+
+		var sessions sessionsType
+		err = json.Unmarshal(b, &sessions)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		fmt.Println(424, sessions)
+
+		if len(sessions.Sessions) == 1 {
+			monitoring := tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("Отслеживать?", strings.Join([]string{
+						"monitoring",
+						sessions.Sessions[0].SessionHash,
+					}, "|"))),
+			)
+
+			msg = tgbotapi.NewMessage(message.Chat.ID, "Есть игра!")
+			msg.ParseMode = tgbotapi.ModeHTML
+			msg.ReplyMarkup = monitoring
+			bot.Send(msg)
+		}
+	} else if strings.Contains(query.Data, "monitoring") {
+		sessionHash := strings.Split(query.Data, "|")[1]
+		userObject, _ := userDB[message.Chat.ID]
+
+		go monitor(sessionHash, userObject, message.Chat.ID)
+
 	}
 
-	callbackCfg := tgbotapi.NewCallback(query.ID, "")
-	bot.Send(callbackCfg)
+}
 
-	msg := tgbotapi.NewMessage(message.Chat.ID, text)
-	bot.Send(msg)
+func monitor(sessionHash string, user userModel, chatId int64) {
 
+	var roundIndex int32
+	currentSessionsUrl := "https://gameapi.riichimahjong.org/v2/common.Mimir/GetSessionOverview"
+
+	body := []byte(`{"session_hash":"` + sessionHash + `"}`)
+	for {
+
+		r, err := http.NewRequest("POST", currentSessionsUrl, bytes.NewBuffer(body))
+		if err != nil {
+			panic(err)
+		}
+
+		r.Header.Add("authority", "userapi.riichimahjong.org")
+		r.Header.Add("accept", "application/json; charset=UTF-8';")
+		r.Header.Add("Content-Type", "application/json; charset=UTF-8';")
+		r.Header.Add("x-auth-token", user.Token)
+		r.Header.Add("x-current-person-id", strconv.Itoa(user.PersonId))
+
+		client := &http.Client{}
+		res, err := client.Do(r)
+		if err != nil {
+			panic(err)
+		}
+		b, err := io.ReadAll(res.Body)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		fmt.Println(468, string(b))
+
+		if len(string(b)) == 0 {
+			msg := tgbotapi.NewMessage(chatId, "Что-то пошло не так")
+			bot.Send(msg)
+			return
+		}
+
+		type PlayerInSession struct {
+			Id         int32  `json:"id"`
+			Title      string `json:"title"`
+			Score      int32  `json:"score"`
+			HasAvatar  bool   `json:"hasAvatar"`
+			LastUpdate string `json:"lastUpdate"`
+		}
+
+		type Penalty struct {
+			Who    int32  `json:"who"`
+			Amount int32  `json:"amount"`
+			Reason string `json:"reason"`
+		}
+
+		type IntermediateResultOfSession struct {
+			PlayerId     int32 `json:"playerId"`
+			Score        int32 `json:"score"`
+			PenaltyScore int32 `json:"penaltyScore"`
+		}
+
+		type SessionStateType struct {
+			Dealer         int32                         `json:"dealer"`
+			RoundIndex     int32                         `json:"roundIndex"`
+			RiichiCount    int32                         `json:"riichiCount"`
+			HonbaCount     int32                         `json:"honbaCount"`
+			Finished       bool                          `json:"finished"`
+			LastHandStated bool                          `json:"lastHandStated"`
+			Scores         []IntermediateResultOfSession `json:"scores"`
+			Penalties      []Penalty                     `json:"penalties"`
+		}
+
+		type gameType struct {
+			Id           int32             `json:"id"`
+			EventId      int32             `json:"eventId"`
+			Players      []PlayerInSession `json:"players"`
+			SessionState SessionStateType  `json:"state"`
+		}
+
+		var gameOverview gameType
+		err = json.Unmarshal(b, &gameOverview)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		fmt.Println(499, gameOverview)
+
+		fmt.Println(528, roundIndex)
+		fmt.Println(529, gameOverview.SessionState.RoundIndex)
+		if roundIndex != gameOverview.SessionState.RoundIndex {
+			var players []string
+
+			var myScores int32
+			roundIndex = gameOverview.SessionState.RoundIndex
+
+			for i, player := range gameOverview.Players {
+				if i == 0 {
+					myScores = player.Score
+					players = append(players, "Мои - "+strconv.FormatInt(int64(player.Score), 10))
+				} else {
+					players = append(players, player.Title+" - "+strconv.FormatInt(int64(player.Score), 10)+" ("+strconv.FormatInt(int64(player.Score-myScores), 10)+")")
+				}
+			}
+
+			msg := tgbotapi.NewMessage(chatId, strings.Join(
+				[]string{
+					roundMap(gameOverview.SessionState.RoundIndex) + " " + strconv.FormatInt(int64(gameOverview.SessionState.RoundIndex), 10),
+					"Хонб - " + strconv.FormatInt(int64(gameOverview.SessionState.HonbaCount), 10),
+					"Риичи палок - " + strconv.FormatInt(int64(gameOverview.SessionState.RiichiCount), 10),
+					players[0],
+					players[1],
+					players[2],
+					players[3],
+				}, "\n"))
+			bot.Send(msg)
+		}
+		time.Sleep(time.Second * 3)
+	}
+}
+
+func roundMap(roundIndex int32) string {
+	if roundIndex < 5 {
+		return "Восток"
+	}
+	if roundIndex < 9 {
+		return "Юг"
+	}
+	return "Запад"
 }
 
 func sendMenu(chatId int64) error {
