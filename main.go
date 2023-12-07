@@ -2,48 +2,45 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"io"
 	"log"
-	"net/http"
+	e "main/endpoints"
+	f "main/functions"
+	m "main/models"
+	r "main/request"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 )
 
-type userModel struct {
-	LoginMode    bool
-	PasswordMode bool
-	Login        string
-	Password     string
-	Token        string
-	PersonId     int
-}
+const (
+	firstMenu    = "<b>Меню</b>\n"
+	portalButton = "Portal"
+	url          = "https://assist.riichimahjong.org/"
+	token        = "6376065784:AAGKmlSoMezH60wk8HWaMBvi8-_E_rSpO3s"
+)
 
 var (
 	// Menu texts
-	firstMenu = "<b>Меню</b>\n"
-
-	portalButton = "Portal"
-	userDB       map[int64]userModel
+	userDB map[int64]m.UserModel
 
 	bot *tgbotapi.BotAPI
 
 	firstMenuMarkup = tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonURL(portalButton, "https://assist.riichimahjong.org/"),
+			tgbotapi.NewInlineKeyboardButtonURL(portalButton, url),
 		),
 	)
 )
 
 func main() {
 	var err error
-	bot, err = tgbotapi.NewBotAPI("6376065784:AAGKmlSoMezH60wk8HWaMBvi8-_E_rSpO3s")
+	bot, err = tgbotapi.NewBotAPI(token)
 	if err != nil {
 		// Abort if something is wrong
 		log.Panic(err)
@@ -52,7 +49,7 @@ func main() {
 	// Set this to true to log all interactions with telegram servers
 	bot.Debug = false
 
-	userDB = make(map[int64]userModel)
+	userDB = make(map[int64]m.UserModel)
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
@@ -77,7 +74,6 @@ func main() {
 }
 
 func receiveUpdates(ctx context.Context, updates tgbotapi.UpdatesChannel) {
-	// `for {` means the loop is infinite until we manually stop it
 	for {
 		select {
 		// stop looping if ctx is cancelled
@@ -138,31 +134,14 @@ func handleMessage(message *tgbotapi.Message) {
 		msg := tgbotapi.NewMessage(message.Chat.ID, "Спасибо)")
 		_, err = bot.Send(msg)
 
-		authUrl := "https://userapi.riichimahjong.org/v2/common.Frey/Authorize"
-
-		var body = []byte(`{"email":"` + userDB[message.Chat.ID].Login + `", "password": "` + userDB[message.Chat.ID].Password + `"}`)
-
-		r, err := http.NewRequest("POST", authUrl, bytes.NewBuffer(body))
-		if err != nil {
-			panic(err)
-		}
-
-		r.Header.Add("authority", "userapi.riichimahjong.org")
-		r.Header.Add("accept", "application/json")
-		r.Header.Add("Content-Type", "application/json")
-
-		client := &http.Client{}
-		res, err := client.Do(r)
-		if err != nil {
-			panic(err)
-		}
+		response, err := r.Authorize(userDB[message.Chat.ID])
 
 		if err != nil {
 			fmt.Println("Error", err.Error())
 			msg := tgbotapi.NewMessage(message.Chat.ID, "Запрос вернул ошибку :(")
 			_, err = bot.Send(msg)
-		} else if res.StatusCode != 200 {
-			b, err := io.ReadAll(res.Body)
+		} else if response.StatusCode != 200 {
+			b, err := io.ReadAll(response.Body)
 			if err != nil {
 				log.Fatalln(err)
 			}
@@ -171,22 +150,12 @@ func handleMessage(message *tgbotapi.Message) {
 			_, err = bot.Send(msg)
 		} else {
 
-			type target struct {
-				PersonId  int    `json:"personId"`
-				AuthToken string `json:"authToken"`
-			}
-
-			var data target
-			err = json.NewDecoder(res.Body).Decode(&data)
+			var data m.Target
+			err = json.NewDecoder(response.Body).Decode(&data)
 			if err != nil {
 				log.Fatalln(err)
 			}
-			err = r.Body.Close()
-			if err != nil {
-				return
-			}
 
-			fmt.Println(168, data.AuthToken)
 			userObject, ok := userDB[message.Chat.ID]
 			if ok {
 				userObject.Token = data.AuthToken
@@ -194,134 +163,21 @@ func handleMessage(message *tgbotapi.Message) {
 				userDB[message.Chat.ID] = userObject
 			}
 
-			eventsUrl := "https://gameapi.riichimahjong.org/v2/common.Mimir/GetMyEvents"
-
-			body = []byte{}
-
-			r, err := http.NewRequest("POST", eventsUrl, bytes.NewBuffer(body))
+			var events m.EventType
+			err := r.Post(e.GetMyEvents, []byte{}, userDB[message.Chat.ID], events)
 			if err != nil {
-				panic(err)
+				msg := tgbotapi.NewMessage(message.Chat.ID, "Что-то пошло не так")
+				bot.Send(msg)
+				return
 			}
 
-			r.Header.Add("authority", "userapi.riichimahjong.org")
-			r.Header.Add("accept", "application/json; charset=UTF-8';")
-			r.Header.Add("Content-Type", "application/json; charset=UTF-8';")
-			r.Header.Add("x-auth-token", userDB[message.Chat.ID].Token)
-			r.Header.Add("x-current-person-id", strconv.Itoa(userDB[message.Chat.ID].PersonId))
-
-			client := &http.Client{}
-			res, err = client.Do(r)
-			if err != nil {
-				panic(err)
-			}
-			b, err := io.ReadAll(res.Body)
-			if err != nil {
-				log.Fatalln(err)
-			}
-			fmt.Println(217, string(b))
-
-			type event struct {
-				Id          int    `json:"id"`
-				Title       string `json:"title"`
-				Description string `json:"description"`
-			}
-
-			type eventType struct {
-				Events []event `json:"events"`
-			}
-
-			var events eventType
-			err = json.Unmarshal(b, &events)
-			if err != nil {
-				log.Fatalln(err)
-			}
-			fmt.Println(228, events)
-
-			var eventButtons [][]tgbotapi.InlineKeyboardButton
-
-			for _, e := range events.Events {
-				eventButtons = append(eventButtons, tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData(e.Title, strings.Join([]string{
-						"selectEvent",
-						strconv.Itoa(e.Id),
-						e.Title,
-					}, "|")),
-				))
-			}
-			eventsMenu := tgbotapi.NewInlineKeyboardMarkup(
-				eventButtons...,
-			)
-
-			msg := tgbotapi.NewMessage(message.Chat.ID, "Выберите событие")
-			msg.ParseMode = tgbotapi.ModeHTML
-			msg.ReplyMarkup = eventsMenu
+			msg = f.EventSelect(events, message.Chat.ID)
 			_, err = bot.Send(msg)
 			if err != nil {
 				log.Fatalln(err)
 			}
 
-			//fetch("https://userapi.riichimahjong.org/v2/common.Frey/QuickAuthorize", {
-			//	"headers": {
-			//		"accept": "application/protobuf",
-			//			"accept-language": "en-US,en;q=0.9,ru;q=0.8",
-			//			"content-type": "application/protobuf",
-			//			"sec-ch-ua": "\"Google Chrome\";v=\"119\", \"Chromium\";v=\"119\", \"Not?A_Brand\";v=\"24\"",
-			//			"sec-ch-ua-mobile": "?0",
-			//			"sec-ch-ua-platform": "\"Linux\"",
-			//			"sec-fetch-dest": "empty",
-			//			"sec-fetch-mode": "cors",
-			//			"sec-fetch-site": "same-site",
-			//			"x-auth-token": "00e66e9481dc0dfe0d8da4b03b953d769098f22a4fdbe04ea836fb93ed1afb263f1513516f8b6881a3db43c708543fc8",
-			//			"x-current-person-id": "956",
-			//			"x-twirp": "true",
-			//			"Referer": "https://assist.riichimahjong.org/",
-			//			"Referrer-Policy": "strict-origin-when-cross-origin"
-			//	},
-			//	"body": "\b¼\u0007\u0012`00e66e9481dc0dfe0d8da4b03b953d769098f22a4fdbe04ea836fb93ed1afb263f1513516f8b6881a3db43c708543fc8",
-			//		"method": "POST"
-			//});
-
-			//quickAuthUrl := "https://userapi.riichimahjong.org/v2/common.Frey/AuthAuthorize"
-			//
-			//r, err = http.NewRequest("POST", quickAuthUrl, bytes.NewBuffer(jsonStr))
-			//if err != nil {
-			//	panic(err)
-			//}
-			//
-			//r.Header.Add("accept", "application/json")
-			//r.Header.Add("Content-Type", "application/json")
-			//r.Header.Add("x-auth-token", userDB[message.Chat.ID].Token)
-			//
-			//client := &http.Client{}
-			//res, err := client.Do(r)
-			//if err != nil {
-			//	panic(err)
-			//}
-			//
-			//fmt.Println(225, res)
-			//fmt.Println(r, res)
-			//for _, cookie := range res.Cookies() {
-			//	fmt.Println("Found a cookie named:", cookie.Name)
-			//}
-			//
-			//b, err = io.ReadAll(res.Body)
-			//if err != nil {
-			//	log.Fatalln(err)
-			//}
-			//fmt.Println(262, string(b))
-			//fmt.Println(262, binary.BigEndian.Uint16(b))
-
 		}
-		fmt.Println(130, userDB[message.Chat.ID])
-
-		//msg := tgbotapi.NewMessage(message.Chat.ID, firstMenu)
-		//msg.ParseMode = tgbotapi.ModeHTML
-		//msg.ReplyMarkup = firstMenuMarkup
-		//_, err := bot.Send(msg)
-	} else {
-		// This is equivalent to forwarding, without the sender's name
-		copyMsg := tgbotapi.NewCopyMessage(message.Chat.ID, message.Chat.ID, message.MessageID)
-		_, err = bot.CopyMessage(copyMsg)
 	}
 
 	if err != nil {
@@ -350,7 +206,6 @@ func handleButton(query *tgbotapi.CallbackQuery) {
 
 	message := query.Message
 
-	fmt.Println(352, query)
 	if strings.Contains(query.Data, "selectEvent") {
 		textList := strings.Split(query.Data, "|")
 		text = "Выбрано событие: " + textList[2]
@@ -361,77 +216,26 @@ func handleButton(query *tgbotapi.CallbackQuery) {
 		msg := tgbotapi.NewMessage(message.Chat.ID, text)
 		bot.Send(msg)
 
-		currentSessionsUrl := "https://gameapi.riichimahjong.org/v2/common.Mimir/GetCurrentSessions"
-
 		userObject, _ := userDB[message.Chat.ID]
 
 		body := []byte(`{"player_id":` + strconv.Itoa(userObject.PersonId) + `,"event_id":` + textList[1] + `}`)
 
-		r, err := http.NewRequest("POST", currentSessionsUrl, bytes.NewBuffer(body))
+		var sessions m.SessionsType
+		err := r.Post(e.GetCurrentSessions, body, userDB[message.Chat.ID], sessions)
 		if err != nil {
-			panic(err)
+			msg := tgbotapi.NewMessage(message.Chat.ID, "Что-то пошло не так")
+			bot.Send(msg)
+			return
 		}
 
-		r.Header.Add("authority", "userapi.riichimahjong.org")
-		r.Header.Add("accept", "application/json; charset=UTF-8';")
-		r.Header.Add("Content-Type", "application/json; charset=UTF-8';")
-		r.Header.Add("x-auth-token", userDB[message.Chat.ID].Token)
-		r.Header.Add("x-current-person-id", strconv.Itoa(userDB[message.Chat.ID].PersonId))
-
-		client := &http.Client{}
-		res, err := client.Do(r)
-		if err != nil {
-			panic(err)
-		}
-		b, err := io.ReadAll(res.Body)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		fmt.Println(389, string(b))
-
-		if len(string(b)) == 0 {
+		if len(sessions.Sessions) == 0 {
 			msg = tgbotapi.NewMessage(message.Chat.ID, "Запущенных игр нет")
 			bot.Send(msg)
 			return
 		}
 
-		type PlayerInSession struct {
-			Id         int32  `json:"id"`
-			Title      string `json:"title"`
-			Score      int32  `json:"score"`
-			HasAvatar  bool   `json:"hasAvatar"`
-			LastUpdate string `json:"lastUpdate"`
-		}
-
-		type sessionType struct {
-			SessionHash string            `json:"sessionHash"`
-			Status      string            `json:"status"`
-			Players     []PlayerInSession `json:"players"`
-		}
-
-		type sessionsType struct {
-			Sessions []sessionType `json:"sessions"`
-		}
-
-		var sessions sessionsType
-		err = json.Unmarshal(b, &sessions)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		fmt.Println(424, sessions)
-
 		if len(sessions.Sessions) == 1 {
-			monitoring := tgbotapi.NewInlineKeyboardMarkup(
-				tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("Отслеживать?", strings.Join([]string{
-						"monitoring",
-						sessions.Sessions[0].SessionHash,
-					}, "|"))),
-			)
-
-			msg = tgbotapi.NewMessage(message.Chat.ID, "Есть игра!")
-			msg.ParseMode = tgbotapi.ModeHTML
-			msg.ReplyMarkup = monitoring
+			f.Watch(sessions.Sessions[0].SessionHash, message.Chat.ID)
 			bot.Send(msg)
 		}
 	} else if strings.Contains(query.Data, "monitoring") {
@@ -444,128 +248,30 @@ func handleButton(query *tgbotapi.CallbackQuery) {
 
 }
 
-func monitor(sessionHash string, user userModel, chatId int64) {
+func monitor(sessionHash string, user m.UserModel, chatId int64) {
 
 	var roundIndex int32
-	currentSessionsUrl := "https://gameapi.riichimahjong.org/v2/common.Mimir/GetSessionOverview"
 
 	body := []byte(`{"session_hash":"` + sessionHash + `"}`)
 	for {
 
-		r, err := http.NewRequest("POST", currentSessionsUrl, bytes.NewBuffer(body))
+		var gameOverview m.GameType
+		err := r.Post(e.GetSessionOverview, body, user, gameOverview)
 		if err != nil {
-			panic(err)
-		}
-
-		r.Header.Add("authority", "userapi.riichimahjong.org")
-		r.Header.Add("accept", "application/json; charset=UTF-8';")
-		r.Header.Add("Content-Type", "application/json; charset=UTF-8';")
-		r.Header.Add("x-auth-token", user.Token)
-		r.Header.Add("x-current-person-id", strconv.Itoa(user.PersonId))
-
-		client := &http.Client{}
-		res, err := client.Do(r)
-		if err != nil {
-			panic(err)
-		}
-		b, err := io.ReadAll(res.Body)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		fmt.Println(468, string(b))
-
-		if len(string(b)) == 0 {
 			msg := tgbotapi.NewMessage(chatId, "Что-то пошло не так")
 			bot.Send(msg)
 			return
 		}
 
-		type PlayerInSession struct {
-			Id         int32  `json:"id"`
-			Title      string `json:"title"`
-			Score      int32  `json:"score"`
-			HasAvatar  bool   `json:"hasAvatar"`
-			LastUpdate string `json:"lastUpdate"`
-		}
-
-		type Penalty struct {
-			Who    int32  `json:"who"`
-			Amount int32  `json:"amount"`
-			Reason string `json:"reason"`
-		}
-
-		type IntermediateResultOfSession struct {
-			PlayerId     int32 `json:"playerId"`
-			Score        int32 `json:"score"`
-			PenaltyScore int32 `json:"penaltyScore"`
-		}
-
-		type SessionStateType struct {
-			Dealer         int32                         `json:"dealer"`
-			RoundIndex     int32                         `json:"roundIndex"`
-			RiichiCount    int32                         `json:"riichiCount"`
-			HonbaCount     int32                         `json:"honbaCount"`
-			Finished       bool                          `json:"finished"`
-			LastHandStated bool                          `json:"lastHandStated"`
-			Scores         []IntermediateResultOfSession `json:"scores"`
-			Penalties      []Penalty                     `json:"penalties"`
-		}
-
-		type gameType struct {
-			Id           int32             `json:"id"`
-			EventId      int32             `json:"eventId"`
-			Players      []PlayerInSession `json:"players"`
-			SessionState SessionStateType  `json:"state"`
-		}
-
-		var gameOverview gameType
-		err = json.Unmarshal(b, &gameOverview)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		fmt.Println(499, gameOverview)
-
-		fmt.Println(528, roundIndex)
-		fmt.Println(529, gameOverview.SessionState.RoundIndex)
 		if roundIndex != gameOverview.SessionState.RoundIndex {
-			var players []string
 
-			var myScores int32
 			roundIndex = gameOverview.SessionState.RoundIndex
-
-			for i, player := range gameOverview.Players {
-				if i == 0 {
-					myScores = player.Score
-					players = append(players, "Мои - "+strconv.FormatInt(int64(player.Score), 10))
-				} else {
-					players = append(players, player.Title+" - "+strconv.FormatInt(int64(player.Score), 10)+" ("+strconv.FormatInt(int64(player.Score-myScores), 10)+")")
-				}
-			}
-
-			msg := tgbotapi.NewMessage(chatId, strings.Join(
-				[]string{
-					roundMap(gameOverview.SessionState.RoundIndex) + " " + strconv.FormatInt(int64(gameOverview.SessionState.RoundIndex), 10),
-					"Хонб - " + strconv.FormatInt(int64(gameOverview.SessionState.HonbaCount), 10),
-					"Риичи палок - " + strconv.FormatInt(int64(gameOverview.SessionState.RiichiCount), 10),
-					players[0],
-					players[1],
-					players[2],
-					players[3],
-				}, "\n"))
+			players := f.Players(gameOverview)
+			msg := f.Scores(gameOverview, players, chatId)
 			bot.Send(msg)
 		}
-		time.Sleep(time.Second * 3)
+		time.Sleep(time.Second * 15)
 	}
-}
-
-func roundMap(roundIndex int32) string {
-	if roundIndex < 5 {
-		return "Восток"
-	}
-	if roundIndex < 9 {
-		return "Юг"
-	}
-	return "Запад"
 }
 
 func sendMenu(chatId int64) error {
@@ -576,20 +282,13 @@ func sendMenu(chatId int64) error {
 	return err
 }
 
-func selectEvent(chatId int64) error {
-	fmt.Println(367, chatId)
-	msg := tgbotapi.NewMessage(chatId, "Событие выбрано")
-	_, err := bot.Send(msg)
-	return err
-}
-
 func login(chatId int64) error {
 	msg := tgbotapi.NewMessage(chatId, "Введите свой логин")
 	_, ok := userDB[chatId]
 	if ok {
-		userDB[chatId] = userModel{LoginMode: true}
+		userDB[chatId] = m.UserModel{LoginMode: true}
 	} else {
-		userDB[chatId] = userModel{
+		userDB[chatId] = m.UserModel{
 			LoginMode: true,
 		}
 	}
