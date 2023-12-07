@@ -3,6 +3,7 @@ package request
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	e "main/endpoints"
 	m "main/models"
@@ -32,6 +33,7 @@ func Post[T interface{}](url string, body []byte, user m.UserModel, response T) 
 	if err != nil {
 		return
 	}
+	fmt.Println(35, string(b))
 
 	err = json.Unmarshal(b, &response)
 	return

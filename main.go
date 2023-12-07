@@ -151,7 +151,11 @@ func handleMessage(message *tgbotapi.Message) {
 		} else {
 
 			var data m.Target
-			err = json.NewDecoder(response.Body).Decode(&data)
+			b, err := io.ReadAll(response.Body)
+			if err != nil {
+				return
+			}
+			err = json.Unmarshal(b, &data)
 			if err != nil {
 				log.Fatalln(err)
 			}
@@ -164,9 +168,14 @@ func handleMessage(message *tgbotapi.Message) {
 			}
 
 			var events m.EventType
-			err := r.Post(e.GetMyEvents, []byte{}, userDB[message.Chat.ID], events)
+			err = r.Post(e.GetMyEvents, []byte{}, userDB[message.Chat.ID], &events)
 			if err != nil {
 				msg := tgbotapi.NewMessage(message.Chat.ID, "Что-то пошло не так")
+				bot.Send(msg)
+				return
+			}
+			if len(events.Events) == 0 {
+				msg := tgbotapi.NewMessage(message.Chat.ID, "Вы не добавлены ни в одно событие")
 				bot.Send(msg)
 				return
 			}
@@ -206,6 +215,7 @@ func handleButton(query *tgbotapi.CallbackQuery) {
 
 	message := query.Message
 
+	fmt.Println(218, query.Data)
 	if strings.Contains(query.Data, "selectEvent") {
 		textList := strings.Split(query.Data, "|")
 		text = "Выбрано событие: " + textList[2]
@@ -221,7 +231,7 @@ func handleButton(query *tgbotapi.CallbackQuery) {
 		body := []byte(`{"player_id":` + strconv.Itoa(userObject.PersonId) + `,"event_id":` + textList[1] + `}`)
 
 		var sessions m.SessionsType
-		err := r.Post(e.GetCurrentSessions, body, userDB[message.Chat.ID], sessions)
+		err := r.Post(e.GetCurrentSessions, body, userDB[message.Chat.ID], &sessions)
 		if err != nil {
 			msg := tgbotapi.NewMessage(message.Chat.ID, "Что-то пошло не так")
 			bot.Send(msg)
@@ -235,7 +245,7 @@ func handleButton(query *tgbotapi.CallbackQuery) {
 		}
 
 		if len(sessions.Sessions) == 1 {
-			f.Watch(sessions.Sessions[0].SessionHash, message.Chat.ID)
+			msg = f.Watch(sessions.Sessions[0].SessionHash, message.Chat.ID)
 			bot.Send(msg)
 		}
 	} else if strings.Contains(query.Data, "monitoring") {
@@ -251,24 +261,29 @@ func handleButton(query *tgbotapi.CallbackQuery) {
 func monitor(sessionHash string, user m.UserModel, chatId int64) {
 
 	var roundIndex int32
+	var honbaCount int32
 
 	body := []byte(`{"session_hash":"` + sessionHash + `"}`)
 	for {
 
 		var gameOverview m.GameType
-		err := r.Post(e.GetSessionOverview, body, user, gameOverview)
+		err := r.Post(e.GetSessionOverview, body, user, &gameOverview)
 		if err != nil {
 			msg := tgbotapi.NewMessage(chatId, "Что-то пошло не так")
 			bot.Send(msg)
 			return
 		}
 
-		if roundIndex != gameOverview.SessionState.RoundIndex {
+		fmt.Println(276, roundIndex, gameOverview.SessionState.RoundIndex)
+		fmt.Println(277, gameOverview)
+		fmt.Println(279, honbaCount, gameOverview.SessionState.HonbaCount)
+		if roundIndex != gameOverview.SessionState.RoundIndex || honbaCount != gameOverview.SessionState.HonbaCount {
 
 			roundIndex = gameOverview.SessionState.RoundIndex
+			honbaCount = gameOverview.SessionState.HonbaCount
 			players := f.Players(gameOverview)
 			msg := f.Scores(gameOverview, players, chatId)
-			bot.Send(msg)
+			_, _ = bot.Send(msg)
 		}
 		time.Sleep(time.Second * 15)
 	}
