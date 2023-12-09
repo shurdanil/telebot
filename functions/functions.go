@@ -56,32 +56,36 @@ func Scores(gameOverview m.GameType, players []string, chatId int64) tgbotapi.Me
 			}, "\n"))
 }
 
-func Players(gameOverview m.GameType) (players []string) {
+func Players(gameOverview m.GameType, me m.UserModel) []string {
 
+	players := make([]string, 4)
 	var myScores int32
 	var meDealer bool
+	counter := 1
 
 	for i, player := range gameOverview.Players {
-		if i == 0 {
+		dealer := player.Id == gameOverview.SessionState.Dealer
+
+		if int(player.Id) == me.PersonId {
 			myScores = player.Score
 
 			str := fmt.Sprintf("Мои - %.1f", float32(player.Score)/1000)
 			meDealer = player.Id == gameOverview.SessionState.Dealer
-			if meDealer {
+			if dealer {
 				str = "!" + str
 			}
-			players = append(players, str)
+			players[0] = str
 		} else {
 			delta := player.Score - myScores
-			dealer := player.Id == gameOverview.SessionState.Dealer
 			str := fmt.Sprintf("%s - %.1f (%.1f, %s)", SeatMap(i), float32(player.Score)/1000, float32(delta)/1000.0, Hans(delta, meDealer, dealer, gameOverview.SessionState))
 			if dealer {
 				str = "!" + str
 			}
-			players = append(players, str)
+			players[counter] = str
+			counter += 1
 		}
 	}
-	return
+	return players
 }
 
 func Hans(delta int32, meDealer bool, notMeDealer bool, sessionState m.SessionStateType) string {

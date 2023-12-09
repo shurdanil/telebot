@@ -167,24 +167,7 @@ func handleMessage(message *tgbotapi.Message) {
 				userDB[message.Chat.ID] = userObject
 			}
 
-			var events m.EventType
-			err = r.Post(e.GetMyEvents, []byte{}, userDB[message.Chat.ID], &events)
-			if err != nil {
-				msg := tgbotapi.NewMessage(message.Chat.ID, "Что-то пошло не так")
-				bot.Send(msg)
-				return
-			}
-			if len(events.Events) == 0 {
-				msg := tgbotapi.NewMessage(message.Chat.ID, "Вы не добавлены ни в одно событие")
-				bot.Send(msg)
-				return
-			}
-
-			msg = f.EventSelect(events, message.Chat.ID)
-			_, err = bot.Send(msg)
-			if err != nil {
-				log.Fatalln(err)
-			}
+			selectEventsMenu(message.Chat.ID)
 
 		}
 	}
@@ -192,6 +175,28 @@ func handleMessage(message *tgbotapi.Message) {
 	if err != nil {
 		log.Printf("An error occured: %s", err.Error())
 	}
+}
+
+func selectEventsMenu(chatId int64) {
+	var events m.EventType
+	err := r.Post(e.GetMyEvents, []byte{}, userDB[chatId], &events)
+	if err != nil {
+		msg := tgbotapi.NewMessage(chatId, "Что-то пошло не так")
+		bot.Send(msg)
+		return
+	}
+	if len(events.Events) == 0 {
+		msg := tgbotapi.NewMessage(chatId, "Вы не добавлены ни в одно событие")
+		bot.Send(msg)
+		return
+	}
+
+	msg := f.EventSelect(events, chatId)
+	_, err = bot.Send(msg)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
 }
 
 // When we get a command, we react accordingly
@@ -273,6 +278,11 @@ func monitor(sessionHash string, user m.UserModel, chatId int64) {
 			bot.Send(msg)
 			return
 		}
+		if gameOverview.SessionState.Finished {
+			msg := tgbotapi.NewMessage(chatId, "Игра закончена")
+			bot.Send(msg)
+			return
+		}
 
 		fmt.Println(276, roundIndex, gameOverview.SessionState.RoundIndex)
 		fmt.Println(277, gameOverview)
@@ -281,11 +291,11 @@ func monitor(sessionHash string, user m.UserModel, chatId int64) {
 
 			roundIndex = gameOverview.SessionState.RoundIndex
 			honbaCount = gameOverview.SessionState.HonbaCount
-			players := f.Players(gameOverview)
+			players := f.Players(gameOverview, user)
 			msg := f.Scores(gameOverview, players, chatId)
 			_, _ = bot.Send(msg)
 		}
-		time.Sleep(time.Second * 15)
+		time.Sleep(time.Second * 10)
 	}
 }
 
