@@ -61,7 +61,7 @@ func Players(gameOverview m.GameType, me m.UserModel) []string {
 	players := make([]string, 4)
 	var myScores int32
 	var meDealer bool
-	counter := 1
+	var myIndex int
 
 	for i, player := range gameOverview.Players {
 		dealer := player.Id == gameOverview.SessionState.Dealer
@@ -74,18 +74,22 @@ func Players(gameOverview m.GameType, me m.UserModel) []string {
 			if dealer {
 				str = "!" + str
 			}
-			players[0] = str
+			players[i] = str
+			myIndex = i
 		} else {
 			delta := player.Score - myScores
 			str := fmt.Sprintf("%s - %.1f (%.1f, %s)", SeatMap(i), float32(player.Score)/1000, float32(delta)/1000.0, Hans(delta, meDealer, dealer, gameOverview.SessionState))
 			if dealer {
 				str = "!" + str
 			}
-			players[counter] = str
-			counter += 1
+			players[i] = str
 		}
 	}
-	return players
+
+	var result []string
+	result = append(result, players[myIndex:]...)
+	result = append(result, players[:myIndex]...)
+	return result
 }
 
 func Hans(delta int32, meDealer bool, notMeDealer bool, sessionState m.SessionStateType) string {
