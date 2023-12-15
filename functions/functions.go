@@ -29,6 +29,12 @@ func RoundMap(roundIndex int32) int32 {
 	return roundIndex - 8
 }
 
+type playerType struct {
+	Seat   int
+	Dealer string
+	Info   string
+}
+
 func SeatMap(playerIndex int) string {
 	if playerIndex == 1 {
 		return "Шимоча"
@@ -39,7 +45,7 @@ func SeatMap(playerIndex int) string {
 	return "Камича"
 }
 
-func Scores(gameOverview m.GameType, players []string, chatId int64) tgbotapi.MessageConfig {
+func Scores(gameOverview m.GameType, players []playerType, chatId int64) tgbotapi.MessageConfig {
 	return tgbotapi.NewMessage(chatId,
 		strings.Join(
 			[]string{
@@ -49,16 +55,16 @@ func Scores(gameOverview m.GameType, players []string, chatId int64) tgbotapi.Me
 					gameOverview.SessionState.HonbaCount,
 					gameOverview.SessionState.RiichiCount,
 				),
-				players[0],
-				players[3],
-				players[2],
-				players[1],
+				fmt.Sprintf("%s%s", players[0].Dealer, players[0].Info),
+				fmt.Sprintf("%s%s%s", players[1].Dealer, SeatMap(1), players[1].Info),
+				fmt.Sprintf("%s%s%s", players[2].Dealer, SeatMap(2), players[2].Info),
+				fmt.Sprintf("%s%s%s", players[3].Dealer, SeatMap(3), players[3].Info),
 			}, "\n"))
 }
 
-func Players(gameOverview m.GameType, me m.UserModel) []string {
+func Players(gameOverview m.GameType, me m.UserModel) []playerType {
 
-	players := make([]string, 4)
+	players := make([]playerType, 4)
 	var myScores int32
 	var meDealer bool
 	var myIndex int
@@ -71,22 +77,31 @@ func Players(gameOverview m.GameType, me m.UserModel) []string {
 
 			str := fmt.Sprintf("Мои - %.1f", float32(player.Score)/1000)
 			meDealer = player.Id == gameOverview.SessionState.Dealer
-			if dealer {
-				str = "!" + str
+
+			players[i] = playerType{
+				Seat:   0,
+				Dealer: "",
+				Info:   str,
 			}
-			players[i] = str
+			if dealer {
+				players[i].Dealer = "!"
+			}
 			myIndex = i
 		} else {
 			delta := player.Score - myScores
-			str := fmt.Sprintf("%s - %.1f (%.1f, %s)", SeatMap(i), float32(player.Score)/1000, float32(delta)/1000.0, Hans(delta, meDealer, dealer, gameOverview.SessionState))
-			if dealer {
-				str = "!" + str
+			players[i] = playerType{
+				Seat:   0,
+				Dealer: "",
+				Info:   fmt.Sprintf(" - %.1f (%.1f, %s)", float32(player.Score)/1000, float32(delta)/1000.0, Hans(delta, meDealer, dealer, gameOverview.SessionState)),
 			}
-			players[i] = str
+
+			if dealer {
+				players[i].Dealer = "!"
+			}
 		}
 	}
 
-	var result []string
+	var result []playerType
 	result = append(result, players[myIndex:]...)
 	result = append(result, players[:myIndex]...)
 	return result
