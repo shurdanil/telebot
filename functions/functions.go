@@ -68,16 +68,19 @@ func Players(gameOverview m.GameType, me m.UserModel) []playerType {
 	var myScores int32
 	var meDealer bool
 	var myIndex int
+	for i, player := range gameOverview.Players {
+		if int(player.Id) == me.PersonId {
+			myScores = player.Score
+			meDealer = player.Id == gameOverview.SessionState.Dealer
+			myIndex = i
+		}
+	}
 
 	for i, player := range gameOverview.Players {
 		dealer := player.Id == gameOverview.SessionState.Dealer
 
 		if int(player.Id) == me.PersonId {
-			myScores = player.Score
-
-			str := fmt.Sprintf("Мои - %.1f", float32(player.Score)/1000)
-			meDealer = player.Id == gameOverview.SessionState.Dealer
-
+			str := fmt.Sprintf("Мои - %.1f", float32(myScores)/1000)
 			players[i] = playerType{
 				Seat:   0,
 				Dealer: "",
@@ -86,7 +89,6 @@ func Players(gameOverview m.GameType, me m.UserModel) []playerType {
 			if dealer {
 				players[i].Dealer = "!"
 			}
-			myIndex = i
 		} else {
 			delta := player.Score - myScores
 			players[i] = playerType{
