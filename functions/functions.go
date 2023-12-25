@@ -37,12 +37,12 @@ type playerType struct {
 
 func SeatMap(playerIndex int) string {
 	if playerIndex == 1 {
-		return "Шимоча"
+		return "Ш"
 	}
 	if playerIndex == 2 {
-		return "Тоймен"
+		return "Т"
 	}
-	return "Камича"
+	return "К"
 }
 
 func Scores(gameOverview m.GameType, players []playerType, chatId int64) tgbotapi.MessageConfig {
