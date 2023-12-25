@@ -220,7 +220,6 @@ func handleButton(query *tgbotapi.CallbackQuery) {
 
 	message := query.Message
 
-	fmt.Println(218, query.Data)
 	if strings.Contains(query.Data, "selectEvent") {
 		textList := strings.Split(query.Data, "|")
 		text = "Выбрано событие: " + textList[2]
@@ -281,12 +280,10 @@ func monitor(sessionHash string, user m.UserModel, chatId int64) {
 		if gameOverview.SessionState.Finished {
 			msg := tgbotapi.NewMessage(chatId, "Игра закончена")
 			bot.Send(msg)
+			selectEventsMenu(chatId)
 			return
 		}
 
-		fmt.Println(276, roundIndex, gameOverview.SessionState.RoundIndex)
-		fmt.Println(277, gameOverview)
-		fmt.Println(279, honbaCount, gameOverview.SessionState.HonbaCount)
 		if roundIndex != gameOverview.SessionState.RoundIndex || honbaCount != gameOverview.SessionState.HonbaCount {
 
 			roundIndex = gameOverview.SessionState.RoundIndex
