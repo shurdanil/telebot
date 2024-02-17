@@ -22,7 +22,6 @@ const (
 	firstMenu    = "<b>Меню</b>\n"
 	portalButton = "Portal"
 	url          = "https://assist.riichimahjong.org/"
-	token        = "6376065784:AAGKmlSoMezH60wk8HWaMBvi8-_E_rSpO3s"
 )
 
 var (
@@ -39,8 +38,11 @@ var (
 )
 
 func main() {
+
+	config := f.CreateConfig()
+
 	var err error
-	bot, err = tgbotapi.NewBotAPI(token)
+	bot, err = tgbotapi.NewBotAPI(config.Token)
 	if err != nil {
 		// Abort if something is wrong
 		log.Panic(err)

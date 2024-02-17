@@ -1,10 +1,13 @@
 package functions
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	m "main/models"
 	"math"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -221,4 +224,46 @@ func EventSelect(events m.EventType, chatId int64) tgbotapi.MessageConfig {
 	msg.ParseMode = tgbotapi.ModeHTML
 	msg.ReplyMarkup = eventsMenu
 	return msg
+}
+
+func Exists(path string) bool {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true
+	}
+	if os.IsNotExist(err) {
+		return false
+	}
+	return false
+}
+
+func CreateConfig() (config struct {
+	Token string `json:"token"`
+}) {
+
+	if !Exists("config.json") {
+		for {
+			var newAPIConfig = make(map[string]string)
+			for _, field := range []string{"token"} {
+				input := bufio.NewScanner(os.Stdin)
+				input.Scan()
+				newAPIConfig[field] = input.Text()
+			}
+
+			data, _ := json.MarshalIndent(newAPIConfig, "", " ")
+			err := os.WriteFile("config.json", data, 0644)
+			if err != nil {
+				continue
+			}
+			break
+		}
+	}
+
+	byteValue, err := os.ReadFile("config.json")
+	if err != nil {
+		return
+	}
+
+	err = json.Unmarshal(byteValue, &config)
+	return
 }
