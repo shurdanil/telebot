@@ -1,0 +1,5 @@
+{
+ "login": "<your-login-from-panteon> (fill or leave empty)",
+ "password": "<your-password-from-panteon> (fill or leave empty)",
+ "token": "<your-token-for-telegram-bot>"
+}

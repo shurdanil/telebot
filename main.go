@@ -35,11 +35,16 @@ var (
 			tgbotapi.NewInlineKeyboardButtonURL(portalButton, url),
 		),
 	)
+	config struct {
+		Token    string `json:"token"`
+		Login    string `json:"login"`
+		Password string `json:"password"`
+	}
 )
 
 func main() {
 
-	config := f.CreateConfig()
+	config = f.CreateConfig()
 
 	var err error
 	bot, err = tgbotapi.NewBotAPI(config.Token)
@@ -180,8 +185,51 @@ func handleMessage(message *tgbotapi.Message) {
 }
 
 func selectEventsMenu(chatId int64) {
+
+	var err error
+	userObject, ok := userDB[chatId]
+	if !ok {
+		userObject.Login = config.Login
+		userObject.Password = config.Password
+		userDB[chatId] = userObject
+
+		response, err := r.Authorize(userObject)
+
+		if err != nil {
+			fmt.Println("Error", err.Error())
+			msg := tgbotapi.NewMessage(chatId, "Запрос вернул ошибку :(")
+			_, err = bot.Send(msg)
+		} else if response.StatusCode != 200 {
+			b, err := io.ReadAll(response.Body)
+			if err != nil {
+				log.Fatalln(err)
+			}
+			fmt.Println("Error", string(b))
+			msg := tgbotapi.NewMessage(chatId, "Что-то не так с логином или паролем :(\nВыполните повторно команду /login")
+			_, err = bot.Send(msg)
+		} else {
+
+			var data m.Target
+			b, err := io.ReadAll(response.Body)
+			if err != nil {
+				return
+			}
+			err = json.Unmarshal(b, &data)
+			if err != nil {
+				log.Fatalln(err)
+			}
+
+			userObject, ok := userDB[chatId]
+			if ok {
+				userObject.Token = data.AuthToken
+				userObject.PersonId = data.PersonId
+				userDB[chatId] = userObject
+			}
+		}
+	}
+
 	var events m.EventType
-	err := r.Post(e.GetMyEvents, []byte{}, userDB[chatId], &events)
+	err = r.Post(e.GetMyEvents, []byte{}, userDB[chatId], &events)
 	if err != nil {
 		msg := tgbotapi.NewMessage(chatId, "Что-то пошло не так")
 		bot.Send(msg)
@@ -208,6 +256,8 @@ func handleCommand(chatId int64, command string) error {
 	switch command {
 	case "/login":
 		err = login(chatId)
+	case "/select":
+		selectEventsMenu(chatId)
 		break
 	case "/menu":
 		err = sendMenu(chatId)

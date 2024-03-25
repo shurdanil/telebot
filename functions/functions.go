@@ -116,7 +116,6 @@ func Hans(delta int32, meDealer bool, notMeDealer bool, sessionState m.SessionSt
 	var response string
 
 	deltaAbs := (int32(math.Abs(float64(delta))) - sessionState.HonbaCount*300 - sessionState.RiichiCount*1000) / 2
-	fmt.Println(62, meDealer, notMeDealer, delta, deltaAbs)
 	if (meDealer && delta > 0) || (notMeDealer && delta < 0) {
 		switch {
 		case deltaAbs <= 1500:
@@ -237,17 +236,22 @@ func Exists(path string) bool {
 	return false
 }
 
+var fields = []string{"Enter token:|token", "Enter login:|login", "Enter password:|password"}
+
 func CreateConfig() (config struct {
-	Token string `json:"token"`
+	Token    string `json:"token"`
+	Login    string `json:"login"`
+	Password string `json:"password"`
 }) {
 
 	if !Exists("config.json") {
 		for {
 			var newAPIConfig = make(map[string]string)
-			for _, field := range []string{"token"} {
+			for _, field := range fields {
+				fmt.Println(strings.Split(field, "|")[0])
 				input := bufio.NewScanner(os.Stdin)
 				input.Scan()
-				newAPIConfig[field] = input.Text()
+				newAPIConfig[strings.Split(field, "|")[1]] = input.Text()
 			}
 
 			data, _ := json.MarshalIndent(newAPIConfig, "", " ")
