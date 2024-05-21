@@ -207,11 +207,15 @@ func EventSelect(events m.EventType, chatId int64) tgbotapi.MessageConfig {
 	var eventButtons [][]tgbotapi.InlineKeyboardButton
 
 	for _, e := range events.Events {
+		title := e.Title
+		if len(title) > 44 {
+			title = e.Title[:44]
+		}
 		eventButtons = append(eventButtons, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(e.Title, strings.Join([]string{
+			tgbotapi.NewInlineKeyboardButtonData(title, strings.Join([]string{
 				"selectEvent",
 				strconv.Itoa(e.Id),
-				e.Title,
+				title,
 			}, "|")),
 		))
 	}
